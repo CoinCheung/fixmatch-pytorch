@@ -2,9 +2,9 @@ import torch
 
 class LabelGuessor(object):
 
-    def __init__(self, model, T):
-        self.T = T
-        self.guessor = model
+    def __init__(self, thresh, discard_idx=1001):
+        self.discard_idx = discard_idx
+        self.thresh = thresh
 
     @torch.no_grad()
     def __call__(self, model, ims):
@@ -12,21 +12,18 @@ class LabelGuessor(object):
             k: v.clone().detach()
             for k, v in model.state_dict().items()
         }
-        is_train = self.guessor.training
-        self.guessor.train()
+        is_train = model.training
+        model.train()
         all_probs = []
-        for im in ims:
-            im = im.cuda()
-            logits = self.guessor(im)
-            probs = torch.softmax(logits, dim=1)
-            all_probs.append(probs)
-        qb = sum(all_probs)/len(all_probs)
-        lbs_tem = torch.pow(qb, 1./self.T)
-        lbs = lbs_tem / torch.sum(lbs_tem, dim=1, keepdim=True)
-        self.guessor.load_state_dict(org_state)
+        logits = model(ims)
+        probs = torch.softmax(logits, dim=1)
+        scores, lbs = torch.max(probs, dim=1)
+        lbs[scores < self.thresh] = self.discard_idx
+
+        model.load_state_dict(org_state)
         if is_train:
-            self.guessor.train()
+            model.train()
         else:
-            self.guessor.eval()
+            model.eval()
         return lbs.detach()
 

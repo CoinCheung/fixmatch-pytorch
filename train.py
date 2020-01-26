@@ -9,8 +9,8 @@ import torch.nn as nn
 from model import WideResnet
 from cifar import get_train_loader, get_val_loader, OneHot
 from label_guessor import LabelGuessor
-from mixup import MixUp
-from loss import CrossEntropyLoss
+#  from loss import CrossEntropyLoss
+from lr_scheduler import WarmupCosineLrScheduler
 from ema import EMA
 
 
@@ -19,16 +19,20 @@ wresnet_k = 2
 wresnet_n = 28
 n_classes = 10
 n_workers = 0
-lr = 0.002
+lr = 0.03
 n_epoches = 1024
 batchsize = 64
+mu = 7
+thr = 0.95
 n_imgs_per_epoch = 64 * 1024
 n_guesses = 2
 temperature = 0.5
 mixup_alpha = 0.75
-lam_u = 75
+lam_u = 1
 ema_alpha = 0.999
-weight_decay = 0.02
+weight_decay = 5e-4
+momentum = 0.9
+discard_idx = 1001
 
 
 ## settings
@@ -43,8 +47,8 @@ def set_model():
     model = WideResnet(n_classes, k=wresnet_k, n=wresnet_n) # wide resnet-28
     model.train()
     model.cuda()
-    criteria_x = CrossEntropyLoss().cuda()
-    criteria_u = nn.MSELoss().cuda()
+    criteria_x = nn.CrossEntropyLoss().cuda()
+    criteria_u = nn.CrossEntropyLoss(ignore_index=discard_idx).cuda()
     return model, criteria_x, criteria_u
 
 
@@ -53,53 +57,38 @@ def train_one_epoch(
         criteria_x,
         criteria_u,
         optim,
+        lr_schdlr,
         ema,
-        wd,
         dltrain_x,
         dltrain_u,
         lb_guessor,
-        mixuper,
         lambda_u,
-        lambda_u_once,
     ):
     n_iters_per_epoch = n_imgs_per_epoch // batchsize
     one_hot = OneHot(n_classes)
-    dl_x, dl_u = iter(dltrain_x), iter(dltrain_u)
     loss_avg, loss_x_avg, loss_u_avg = [], [], []
     st = time.time()
     for it in range(n_iters_per_epoch):
-        try:
-            ims_x, lbs_x = next(dl_x)
-        except StopIteration:
-            dl_x = iter(dltrain_x)
-            ims_x, lbs_x = next(dl_x)
-        try:
-            ims_u, _ = next(dl_u)
-        except StopIteration:
-            dl_u = iter(dltrain_u)
-            ims_u, _ = next(dl_u)
-        with torch.no_grad():
-            ims_x, lbs_x = ims_x[0].cuda(), one_hot(lbs_x).cuda()
-            ims_u = [im.cuda() for im in ims_u]
-            lbs_u = lb_guessor(model, ims_u).cuda()
-            ims = torch.cat([ims_x]+ims_u, dim=0)
-            lbs = torch.cat([lbs_x]+[lbs_u for _ in range(n_guesses)], dim=0)
-            ims, lbs = mixuper(ims, lbs)
+        # TODO:  see if accelerate when do not add strong aug to labeled samples
+        ims_x_weak, _, lbs_x = dltrain_x.fetch_batch()
+        ims_u_weak, ims_u_strong, _ = dltrain_u.fetch_batch()
+
+        ims_x_weak = ims_x_weak.cuda()
+        lbs_x = lbs_x.cuda()
+        ims_u_weak = ims_u_weak.cuda()
+        ims_u_strong = ims_u_strong.cuda()
+
+        logits_x = model(ims_x_weak)
+        loss_x = criteria_x(logits_x, lbs_x)
+        lbs_u = lb_guessor(model, ims_u_weak)
+        logits_u = model(ims_u_strong)
+        loss_u = criteria_u(logits_u, lbs_u)
+        loss = loss_x + lambda_u * loss_u
 
         optim.zero_grad()
-        logits = model(ims)
-        logits_x = logits[:batchsize]
-        lbs_x = lbs[:batchsize]
-        logits_u = logits[batchsize:]
-        preds_u = torch.softmax(logits_u, dim=1)
-        lbs_u = lbs[batchsize:]
-        loss_x = criteria_x(logits_x, lbs_x)
-        loss_u = criteria_u(preds_u, lbs_u)
-        lam_u = lambda_u + lambda_u_once * it
-        loss = loss_x + lam_u * loss_u
         loss.backward()
         optim.step()
-        do_weight_decay(model, wd)
+        lr_schdlr.step()
         ema.update_params()
 
         loss_avg.append(loss.item())
@@ -112,15 +101,16 @@ def train_one_epoch(
             loss_avg = sum(loss_avg) / len(loss_avg)
             loss_x_avg = sum(loss_x_avg) / len(loss_x_avg)
             loss_u_avg = sum(loss_u_avg) / len(loss_u_avg)
+            lr_log = lr_schdlr.get_lr_ratio() * lr
             msg = ', '.join([
                 'iter: {}',
                 'loss_avg: {:.4f}',
                 'loss_u: {:.4f}',
                 'loss_x: {:.4f}',
-                'lam_u: {:.4f}',
+                'lr: {:.4f}',
                 'time: {:.2f}',
             ]).format(
-                it+1, loss_avg, loss_u, loss_x, lam_u, t
+                it+1, loss_avg, loss_u, loss_x, lr_log, t
             )
             loss_avg, loss_x_avg, loss_u_avg = [], [], []
             st = ed
@@ -139,7 +129,7 @@ def evaluate(ema):
     )
     matches = []
     for ims, lbs in dlval:
-        ims = ims[0].cuda()
+        ims = ims.cuda()
         lbs = lbs.cuda()
         with torch.no_grad():
             logits = ema.model(ims)
@@ -153,48 +143,40 @@ def evaluate(ema):
     return acc
 
 
-@torch.no_grad()
-def do_weight_decay(model, decay):
-    for param in model.parameters():
-        param.copy_(param * decay)
-
 
 def train():
     model, criteria_x, criteria_u = set_model()
 
-    dltrain_x, dltrain_u = get_train_loader(
-        batchsize, L=250, K=n_guesses, num_workers=n_workers
-    )
-    lb_guessor = LabelGuessor(model, T=temperature)
-    mixuper = MixUp(mixup_alpha)
+    dltrain_x, dltrain_u = get_train_loader(batchsize, mu, L=250)
+    lb_guessor = LabelGuessor(thresh=thr, discard_idx=discard_idx)
 
     ema = EMA(model, ema_alpha)
-    optim = torch.optim.Adam(model.parameters(), lr=lr)
 
     n_iters_per_epoch = n_imgs_per_epoch // batchsize
-    lam_u_epoch = float(lam_u) / n_epoches
-    lam_u_once = lam_u_epoch / n_iters_per_epoch
+    n_iters_all = n_iters_per_epoch * n_epoches
+    optim = torch.optim.SGD(model.parameters(), lr=lr, weight_decay=weight_decay)
+    lr_schdlr = WarmupCosineLrScheduler(
+        optim, max_iter=n_iters_all, warmup_iter=0
+    )
+
 
     train_args = dict(
         model=model,
         criteria_x=criteria_x,
         criteria_u=criteria_u,
         optim=optim,
+        lr_schdlr=lr_schdlr,
         ema=ema,
-        wd = 1 - weight_decay * lr,
         dltrain_x=dltrain_x,
         dltrain_u=dltrain_u,
         lb_guessor=lb_guessor,
-        mixuper=mixuper,
-        lambda_u=0,
-        lambda_u_once=lam_u_once,
+        lambda_u=lam_u,
     )
     best_acc = -1
     print('start to train')
     for e in range(n_epoches):
         model.train()
         print('epoch: {}'.format(e))
-        train_args['lambda_u'] = e * lam_u_epoch
         train_one_epoch(**train_args)
         torch.cuda.empty_cache()
 

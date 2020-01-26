@@ -2,6 +2,7 @@ import os.path as osp
 import pickle
 import numpy as np
 from PIL import Image
+import random
 
 import torch
 from torch.utils.data import Dataset
@@ -64,15 +65,20 @@ def load_data_val(dspth='./dataset'):
 
 
 class Cifar10(Dataset):
-    def __init__(self, data, labels, n_guesses=1, is_train=True):
+    def __init__(self, data, labels, is_train=True):
         super(Cifar10, self).__init__()
         self.data, self.labels = data, labels
-        self.n_guesses = n_guesses
         assert len(self.data) == len(self.labels)
-        assert self.n_guesses >= 1
         mean, std = (0.4914, 0.4822, 0.4465), (0.2471, 0.2435, 0.2616)
         if is_train:
-            self.trans = T.Compose([
+            self.trans_weak = T.Compose([
+                T.Resize((32, 32)),
+                T.PadandRandomCrop(border=4, cropsize=(32, 32)),
+                T.RandomHorizontalFlip(p=0.5),
+                T.Normalize(mean, std),
+                T.ToTensor(),
+            ])
+            self.trans_strong = T.Compose([
                 T.Resize((32, 32)),
                 T.PadandRandomCrop(border=4, cropsize=(32, 32)),
                 T.RandomHorizontalFlip(p=0.5),
@@ -87,48 +93,84 @@ class Cifar10(Dataset):
             ])
 
     def __getitem__(self, idx):
+        idx = idx % len(self.data)
         im, lb = self.data[idx], self.labels[idx]
-        ims = []
-        for _ in range(self.n_guesses):
-            im_trans = self.trans(im)
-            ims.append(im_trans)
-        return ims, lb
+        im = self.trans(im)
+        return im, lb
 
     def __len__(self):
         return len(self.data)
 
 
+class Cifar10Loader(object):
+    def __init__(self, data, labels, batchsize, is_train=True):
+        self.data, self.labels = data, labels
+        self.batchsize = batchsize
+        assert len(self.data) == len(self.labels)
+        mean, std = (0.4914, 0.4822, 0.4465), (0.2471, 0.2435, 0.2616)
+        if is_train:
+            self.trans_weak = T.Compose([
+                T.Resize((32, 32)),
+                T.PadandRandomCrop(border=4, cropsize=(32, 32)),
+                T.RandomHorizontalFlip(p=0.5),
+                T.Normalize(mean, std),
+                T.ToTensor(),
+            ])
+            self.trans_strong = T.Compose([
+                T.Resize((32, 32)),
+                T.PadandRandomCrop(border=4, cropsize=(32, 32)),
+                T.RandomHorizontalFlip(p=0.5),
+                T.Normalize(mean, std),
+                T.ToTensor(),
+            ])
+        else:
+            self.trans = T.Compose([
+                T.Resize((32, 32)),
+                T.Normalize(mean, std),
+                T.ToTensor(),
+            ])
+        self.curr = 0
+        self.len = len(self.data)
+        self.indices = list(range(self.len))
+        self.shuffle()
 
-def get_train_loader(batch_size, L, K, num_workers, pin_memory=True, root='dataset'):
+    def fetch_batch(self):
+        batch_idx = []
+        for i in range(self.batchsize):
+            batch_idx.append(self.indices[self.curr])
+            self.curr += 1
+            if self.curr >= self.len:
+                self.shuffle()
+                self.curr = 0
+        im_weak = [self.trans_weak(self.data[idx]) for idx in batch_idx]
+        im_strong = [self.trans_strong(self.data[idx]) for idx in batch_idx]
+        #  lbs = [self.labels[idx] for idx in batch_idx]
+        lbs = torch.tensor([self.labels[idx] for idx in batch_idx]).long()
+
+        return self.collect(im_weak), self.collect(im_strong), lbs
+
+    def shuffle(self):
+        random.shuffle(self.indices)
+
+    def collect(self, items):
+        return torch.cat([el.unsqueeze(0) for el in items], dim=0)
+
+
+
+def get_train_loader(batch_size, mu, L, root='dataset'):
     data_x, label_x, data_u, label_u = load_data_train(L=L, dspth=root)
 
-    ds_x = Cifar10(
+    dl_x = Cifar10Loader(
         data=data_x,
         labels=label_x,
-        n_guesses=1,
+        batchsize=batch_size,
         is_train=True
     )
-    ds_u = Cifar10(
+    dl_u = Cifar10Loader(
         data=data_u,
         labels=label_u,
-        n_guesses=K,
+        batchsize=batch_size * mu,
         is_train=True
-    )
-    dl_x = torch.utils.data.DataLoader(
-        ds_x,
-        shuffle=True,
-        batch_size=batch_size,
-        drop_last=True,
-        num_workers=num_workers,
-        pin_memory=pin_memory
-    )
-    dl_u = torch.utils.data.DataLoader(
-        ds_u,
-        shuffle=True,
-        batch_size=batch_size,
-        drop_last=True,
-        num_workers=num_workers,
-        pin_memory=pin_memory
     )
     return dl_x, dl_u
 
@@ -138,7 +180,6 @@ def get_val_loader(batch_size, num_workers, pin_memory=True, root='cifar10'):
     ds = Cifar10(
         data=data,
         labels=labels,
-        n_guesses=1,
         is_train=False
     )
     dl = torch.utils.data.DataLoader(
