@@ -1,14 +1,18 @@
 import os.path as osp
 import pickle
+import random
+import queue
+import threading
 import numpy as np
 from PIL import Image
-import random
 
 import torch
 from torch.utils.data import Dataset
 import torchvision
 import transform as T
 
+
+dataloadLock = threading.Lock()
 
 
 def load_data_train(L=250, dspth='./dataset'):
@@ -103,9 +107,10 @@ class Cifar10(Dataset):
 
 
 class Cifar10Loader(object):
-    def __init__(self, data, labels, batchsize, is_train=True):
+    def __init__(self, data, labels, batchsize, max_iter, is_train=True):
         self.data, self.labels = data, labels
         self.batchsize = batchsize
+        self.max_iter = max_iter
         assert len(self.data) == len(self.labels)
         mean, std = (0.4914, 0.4822, 0.4465), (0.2471, 0.2435, 0.2616)
         if is_train:
@@ -134,42 +139,82 @@ class Cifar10Loader(object):
         self.indices = list(range(self.len))
         self.shuffle()
 
+        all_num_imgs = self.batchsize * self.max_iter
+        self.idx_q = queue.Queue(640)
+        gen_idx_thread = threading.Thread(target=self.gen_idx, args=(self.idx_q, all_num_imgs))
+        gen_idx_thread.start()
+        self.loader_q = queue.Queue(640)
+        loader_thread = threading.Thread(target=self.load_data, args=(self.idx_q, self.loader_q, all_num_imgs))
+        loader_thread.start()
+
     def fetch_batch(self):
-        batch_idx = []
+        ims_weak, ims_strong, lbs = [], [], []
         for i in range(self.batchsize):
-            batch_idx.append(self.indices[self.curr])
-            self.curr += 1
-            if self.curr >= self.len:
-                self.shuffle()
-                self.curr = 0
-        im_weak = [self.trans_weak(self.data[idx]) for idx in batch_idx]
-        im_strong = [self.trans_strong(self.data[idx]) for idx in batch_idx]
-        #  lbs = [self.labels[idx] for idx in batch_idx]
-        lbs = torch.tensor([self.labels[idx] for idx in batch_idx]).long()
+            im_weak, im_strong, lb = self.loader_q.get()
+            ims_weak.append(im_weak)
+            ims_strong.append(im_strong)
+            lbs.append(lb)
+        ims_weak = self.collect(ims_weak)
+        ims_strong = self.collect(ims_strong)
+        lbs = torch.tensor(lbs).long()
+        return ims_weak, ims_strong, lbs
 
-        return self.collect(im_weak), self.collect(im_strong), lbs
+    #  def fetch_batch(self):
+    #      batch_idx = []
+    #      for i in range(self.batchsize):
+    #          batch_idx.append(self.indices[self.curr])
+    #          self.curr += 1
+    #          if self.curr >= self.len:
+    #              self.shuffle()
+    #              self.curr = 0
+    #      im_weak = [self.trans_weak(self.data[idx]) for idx in batch_idx]
+    #      im_strong = [self.trans_strong(self.data[idx]) for idx in batch_idx]
+    #      #  lbs = [self.labels[idx] for idx in batch_idx]
+    #      lbs = torch.tensor([self.labels[idx] for idx in batch_idx]).long()
+    #
+    #      return self.collect(im_weak), self.collect(im_strong), lbs
 
-    def shuffle(self):
-        random.shuffle(self.indices)
+    def gen_idx(self, idx_q, num_imgs):
+        curr = 0
+        for i in range(num_imgs):
+            idx_q.put(self.indices[curr])
+            curr += 1
+            if curr >= self.len:
+                random.shuffle(self.indices)
+                curr = 0
+
+    def load_data(self, idx_q, loader_q, all_num_imgs):
+        for i in range(all_num_imgs):
+            idx = idx_q.get()
+            img_weak = self.trans_weak(self.data[idx])
+            img_strong = self.trans_strong(self.data[idx])
+            lb = self.labels[idx]
+            loader_q.put((img_weak, img_strong, lb))
+    #
+    #  def shuffle(self):
+    #      random.shuffle(self.indices)
 
     def collect(self, items):
         return torch.cat([el.unsqueeze(0) for el in items], dim=0)
 
 
 
-def get_train_loader(batch_size, mu, L, root='dataset'):
+
+def get_train_loader(batch_size, mu, L, max_iter, root='dataset'):
     data_x, label_x, data_u, label_u = load_data_train(L=L, dspth=root)
 
     dl_x = Cifar10Loader(
         data=data_x,
         labels=label_x,
         batchsize=batch_size,
+        max_iter=max_iter,
         is_train=True
     )
     dl_u = Cifar10Loader(
         data=data_u,
         labels=label_u,
         batchsize=batch_size * mu,
+        max_iter=max_iter,
         is_train=True
     )
     return dl_x, dl_u

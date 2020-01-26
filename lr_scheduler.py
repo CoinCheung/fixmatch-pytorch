@@ -121,7 +121,7 @@ class WarmupCosineLrScheduler(_LRScheduler):
         else:
             real_iter = self.last_epoch - self.warmup_iter
             real_max_iter = self.max_iter - self.warmup_iter
-            ratio = np.cos((7 * np.pi * self.last_epoch) / (16 * self.max_iter))
+            ratio = np.cos((7 * np.pi * real_iter) / (16 * real_max_iter))
         return ratio
 
     def get_warmup_ratio(self):
@@ -139,7 +139,7 @@ if __name__ == "__main__":
     optim = torch.optim.SGD(model.parameters(), lr=1e-3)
 
     max_iter = 20000
-    lr_scheduler = WarmupPolyLrScheduler(optim, 0.9, max_iter, 200, 0.1, 'linear', -1)
+    lr_scheduler = WarmupCosineLrScheduler(optim, max_iter, 0, 0.1, 'linear', -1)
     lrs = []
     for _ in range(max_iter):
         lr = lr_scheduler.get_lr()[0]

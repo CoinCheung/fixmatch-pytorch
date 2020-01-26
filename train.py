@@ -33,6 +33,8 @@ ema_alpha = 0.999
 weight_decay = 5e-4
 momentum = 0.9
 discard_idx = 1001
+n_iters_per_epoch = n_imgs_per_epoch // batchsize
+n_iters_all = n_iters_per_epoch * n_epoches
 
 
 ## settings
@@ -64,7 +66,6 @@ def train_one_epoch(
         lb_guessor,
         lambda_u,
     ):
-    n_iters_per_epoch = n_imgs_per_epoch // batchsize
     one_hot = OneHot(n_classes)
     loss_avg, loss_x_avg, loss_u_avg = [], [], []
     st = time.time()
@@ -101,7 +102,8 @@ def train_one_epoch(
             loss_avg = sum(loss_avg) / len(loss_avg)
             loss_x_avg = sum(loss_x_avg) / len(loss_x_avg)
             loss_u_avg = sum(loss_u_avg) / len(loss_u_avg)
-            lr_log = lr_schdlr.get_lr_ratio() * lr
+            #  lr_log = lr_schdlr.get_lr_ratio() * lr
+            lr_log = lr_schdlr.get_lr()[0]
             msg = ', '.join([
                 'iter: {}',
                 'loss_avg: {:.4f}',
@@ -147,13 +149,12 @@ def evaluate(ema):
 def train():
     model, criteria_x, criteria_u = set_model()
 
-    dltrain_x, dltrain_u = get_train_loader(batchsize, mu, L=250)
+    dltrain_x, dltrain_u = get_train_loader(
+        batchsize, mu, L=250, max_iter=n_iters_all)
     lb_guessor = LabelGuessor(thresh=thr, discard_idx=discard_idx)
 
     ema = EMA(model, ema_alpha)
 
-    n_iters_per_epoch = n_imgs_per_epoch // batchsize
-    n_iters_all = n_iters_per_epoch * n_epoches
     optim = torch.optim.SGD(model.parameters(), lr=lr, weight_decay=weight_decay)
     lr_schdlr = WarmupCosineLrScheduler(
         optim, max_iter=n_iters_all, warmup_iter=0
