@@ -119,15 +119,15 @@ class Cifar10Loader(object):
                 T.Resize((32, 32)),
                 T.PadandRandomCrop(border=4, cropsize=(32, 32)),
                 T.RandomHorizontalFlip(p=0.5),
-                T.Normalize(mean, std),
-                T.ToTensor(),
+                #  T.Normalize(mean, std),
+                #  T.ToTensor(),
             ])
             self.trans_strong = T.Compose([
                 T.Resize((32, 32)),
                 T.PadandRandomCrop(border=4, cropsize=(32, 32)),
                 T.RandomHorizontalFlip(p=0.5),
-                T.Normalize(mean, std),
-                T.ToTensor(),
+                #  T.Normalize(mean, std),
+                #  T.ToTensor(),
             ])
         else:
             self.trans = T.Compose([
@@ -135,7 +135,10 @@ class Cifar10Loader(object):
                 T.Normalize(mean, std),
                 T.ToTensor(),
             ])
-        self.curr = 0
+        self.to_tensor = T.Compose([
+            T.Normalize(mean, std),
+            T.ToTensor(),
+        ])
         self.len = len(self.data)
         self.indices = list(range(self.len))
         random.shuffle(self.indices)
@@ -172,8 +175,10 @@ class Cifar10Loader(object):
                     finish = True
                     break
             if finish: break
-        ims_weak = torch.cat([el.unsqueeze(0) for el in ims_weak], dim=0)
-        ims_strong = torch.cat([el.unsqueeze(0) for el in ims_strong], dim=0)
+        ims_weak = self.to_tensor(
+            np.concatenate([el[None, ...] for el in ims_weak], axis=0))
+        ims_strong = self.to_tensor(
+            np.concatenate([el[None, ...] for el in ims_strong], axis=0))
         lbs = torch.tensor(lbs).long()
         return ims_weak, ims_strong, lbs
 
