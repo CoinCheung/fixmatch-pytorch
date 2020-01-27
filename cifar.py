@@ -1,8 +1,9 @@
 import os.path as osp
 import pickle
 import random
-import queue
-import threading
+#  from queue import Queue
+#  from threading import Thread
+from multiprocessing import Process, Queue
 import numpy as np
 from PIL import Image
 
@@ -11,8 +12,6 @@ from torch.utils.data import Dataset
 import torchvision
 import transform as T
 
-
-dataloadLock = threading.Lock()
 
 
 def load_data_train(L=250, dspth='./dataset'):
@@ -107,7 +106,9 @@ class Cifar10(Dataset):
 
 
 class Cifar10Loader(object):
-    def __init__(self, data, labels, batchsize, max_iter, is_train=True):
+    def __init__(self, data, labels, batchsize, max_iter,
+        is_train=True, num_worker=4
+    ):
         self.data, self.labels = data, labels
         self.batchsize = batchsize
         self.max_iter = max_iter
@@ -137,51 +138,55 @@ class Cifar10Loader(object):
         self.curr = 0
         self.len = len(self.data)
         self.indices = list(range(self.len))
-        self.shuffle()
+        random.shuffle(self.indices)
 
         all_num_imgs = self.batchsize * self.max_iter
-        self.idx_q = queue.Queue(640)
-        gen_idx_thread = threading.Thread(target=self.gen_idx, args=(self.idx_q, all_num_imgs))
+        buffer_len = 640
+        assert all_num_imgs % num_worker == 0
+        self.idx_qs = [Queue(buffer_len) for el in range(num_worker)]
+        self.loader_qs = [Queue(buffer_len) for el in range(num_worker)]
+        gen_idx_thread = Process(target=self.gen_idx,
+            args=(self.idx_qs, all_num_imgs))
+        loader_threads = [
+            Process(target=self.load_data,
+                args=(self.idx_qs[el], self.loader_qs[el], all_num_imgs//num_worker))
+            for el in range(num_worker)
+        ]
+
         gen_idx_thread.start()
-        self.loader_q = queue.Queue(640)
-        loader_thread = threading.Thread(target=self.load_data, args=(self.idx_q, self.loader_q, all_num_imgs))
-        loader_thread.start()
+        for thread in loader_threads:
+            thread.start()
 
     def fetch_batch(self):
         ims_weak, ims_strong, lbs = [], [], []
-        for i in range(self.batchsize):
-            im_weak, im_strong, lb = self.loader_q.get()
-            ims_weak.append(im_weak)
-            ims_strong.append(im_strong)
-            lbs.append(lb)
-        ims_weak = self.collect(ims_weak)
-        ims_strong = self.collect(ims_strong)
+        count = 0
+        finish = False
+        while True:
+            for lq in self.loader_qs:
+                im_weak, im_strong, lb = lq.get()
+                ims_weak.append(im_weak)
+                ims_strong.append(im_strong)
+                lbs.append(lb)
+                count += 1
+                if count >= self.batchsize:
+                    finish = True
+                    break
+            if finish: break
+        ims_weak = torch.cat([el.unsqueeze(0) for el in ims_weak], dim=0)
+        ims_strong = torch.cat([el.unsqueeze(0) for el in ims_strong], dim=0)
         lbs = torch.tensor(lbs).long()
         return ims_weak, ims_strong, lbs
 
-    #  def fetch_batch(self):
-    #      batch_idx = []
-    #      for i in range(self.batchsize):
-    #          batch_idx.append(self.indices[self.curr])
-    #          self.curr += 1
-    #          if self.curr >= self.len:
-    #              self.shuffle()
-    #              self.curr = 0
-    #      im_weak = [self.trans_weak(self.data[idx]) for idx in batch_idx]
-    #      im_strong = [self.trans_strong(self.data[idx]) for idx in batch_idx]
-    #      #  lbs = [self.labels[idx] for idx in batch_idx]
-    #      lbs = torch.tensor([self.labels[idx] for idx in batch_idx]).long()
-    #
-    #      return self.collect(im_weak), self.collect(im_strong), lbs
 
-    def gen_idx(self, idx_q, num_imgs):
+    def gen_idx(self, idx_qs, num_imgs):
         curr = 0
         for i in range(num_imgs):
-            idx_q.put(self.indices[curr])
-            curr += 1
-            if curr >= self.len:
-                random.shuffle(self.indices)
-                curr = 0
+            for q in idx_qs:
+                q.put(self.indices[curr])
+                curr += 1
+                if curr >= self.len:
+                    random.shuffle(self.indices)
+                    curr = 0
 
     def load_data(self, idx_q, loader_q, all_num_imgs):
         for i in range(all_num_imgs):
@@ -190,13 +195,6 @@ class Cifar10Loader(object):
             img_strong = self.trans_strong(self.data[idx])
             lb = self.labels[idx]
             loader_q.put((img_weak, img_strong, lb))
-    #
-    #  def shuffle(self):
-    #      random.shuffle(self.indices)
-
-    def collect(self, items):
-        return torch.cat([el.unsqueeze(0) for el in items], dim=0)
-
 
 
 
@@ -208,6 +206,7 @@ def get_train_loader(batch_size, mu, L, max_iter, root='dataset'):
         labels=label_x,
         batchsize=batch_size,
         max_iter=max_iter,
+        num_worker=1,
         is_train=True
     )
     dl_u = Cifar10Loader(
@@ -215,6 +214,7 @@ def get_train_loader(batch_size, mu, L, max_iter, root='dataset'):
         labels=label_u,
         batchsize=batch_size * mu,
         max_iter=max_iter,
+        num_worker=2,
         is_train=True
     )
     return dl_x, dl_u

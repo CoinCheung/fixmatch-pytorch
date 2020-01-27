@@ -102,8 +102,7 @@ def train_one_epoch(
             loss_avg = sum(loss_avg) / len(loss_avg)
             loss_x_avg = sum(loss_x_avg) / len(loss_x_avg)
             loss_u_avg = sum(loss_u_avg) / len(loss_u_avg)
-            #  lr_log = lr_schdlr.get_lr_ratio() * lr
-            lr_log = lr_schdlr.get_lr()[0]
+            lr_log = lr_schdlr.get_lr_ratio() * lr
             msg = ', '.join([
                 'iter: {}',
                 'loss_avg: {:.4f}',
