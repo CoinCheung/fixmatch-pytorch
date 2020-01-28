@@ -46,13 +46,17 @@ class Normalize(object):
     Inputs are pixel values in range of [0, 255], channel order is 'rgb'
     '''
     def __init__(self, mean, std):
-        self.mean = np.array(mean, np.float32).reshape(1, 1, 1, -1)
-        self.std = np.array(std, np.float32).reshape(1, 1, 1, -1)
+        self.mean = np.array(mean, np.float32).reshape(1, 1, -1)
+        self.std = np.array(std, np.float32).reshape(1, 1, -1)
 
     def __call__(self, im):
-        im = im.astype(np.float32)
-        im -= self.mean
-        im /= self.std
+        if len(im.shape) == 4:
+            mean, std = self.mean[None, ...], self.std[None, ...]
+        elif len(im.shape) == 3:
+            mean, std = self.mean, self.std
+        im = im.astype(np.float32) / 255.
+        im -= mean
+        im /= std
         return im
 
 
@@ -61,7 +65,10 @@ class ToTensor(object):
         pass
 
     def __call__(self, im):
-        return torch.from_numpy(im.transpose(0, 3, 1, 2))
+        if len(im.shape) == 4:
+            return torch.from_numpy(im.transpose(0, 3, 1, 2))
+        elif len(im.shape) == 3:
+            return torch.from_numpy(im.transpose(2, 0, 1))
 
 
 class Compose(object):
