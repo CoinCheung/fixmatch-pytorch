@@ -79,6 +79,7 @@ def train_one_epoch(
         ims_u_weak = ims_u_weak.cuda()
         ims_u_strong = ims_u_strong.cuda()
 
+        ## TODO: try only one forward
         logits_x = model(ims_x_weak)
         loss_x = criteria_x(logits_x, lbs_x)
         lbs_u = lb_guessor(model, ims_u_weak)
@@ -154,11 +155,19 @@ def train():
 
     ema = EMA(model, ema_alpha)
 
-    optim = torch.optim.SGD(model.parameters(), lr=lr, weight_decay=weight_decay)
+    ##TODO:no wd for non-kernel parameters
+    wd_params, non_wd_params = [], []
+    for param in model.parameters():
+        if len(param.size()) == 1:
+            non_wd_params.append(param)
+        else:
+            wd_params.append(param)
+    param_list = [
+        {'params': wd_params}, {'params': non_wd_params, 'weight_decay': 0}]
+    optim = torch.optim.SGD(param_list, lr=lr, weight_decay=weight_decay)
     lr_schdlr = WarmupCosineLrScheduler(
         optim, max_iter=n_iters_all, warmup_iter=0
     )
-
 
     train_args = dict(
         model=model,
