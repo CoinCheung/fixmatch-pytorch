@@ -155,7 +155,6 @@ def train():
 
     ema = EMA(model, ema_alpha)
 
-    ##TODO:no wd for non-kernel parameters
     wd_params, non_wd_params = [], []
     for param in model.parameters():
         if len(param.size()) == 1:
