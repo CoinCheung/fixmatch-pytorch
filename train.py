@@ -18,16 +18,12 @@ from ema import EMA
 wresnet_k = 2
 wresnet_n = 28
 n_classes = 10
-n_workers = 0
 lr = 0.03
 n_epoches = 1024
 batchsize = 64
 mu = 7
 thr = 0.95
 n_imgs_per_epoch = 64 * 1024
-n_guesses = 2
-temperature = 0.5
-mixup_alpha = 0.75
 lam_u = 1
 ema_alpha = 0.999
 weight_decay = 5e-4
@@ -127,7 +123,7 @@ def evaluate(ema):
     ema.model.cuda()
 
     dlval = get_val_loader(
-        batch_size=128, num_workers=n_workers, root='cifar10'
+        batch_size=128, num_workers=0, root='cifar10'
     )
     matches = []
     for ims, lbs in dlval:

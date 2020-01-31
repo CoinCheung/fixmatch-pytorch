@@ -1,9 +1,6 @@
 import os.path as osp
 import pickle
 import random
-#  from queue import Queue
-#  from threading import Thread
-from multiprocessing import Process, Queue
 import numpy as np
 from PIL import Image
 
@@ -12,6 +9,7 @@ from torch.utils.data import Dataset
 import torchvision
 import transform as T
 
+from autoaugment import RandomAugment
 
 
 def load_data_train(L=250, dspth='./dataset'):
@@ -87,6 +85,7 @@ class Cifar10(Dataset):
                 T.Resize((32, 32)),
                 T.PadandRandomCrop(border=4, cropsize=(32, 32)),
                 T.RandomHorizontalFlip(p=0.5),
+                RandomAugment(2, 10),
                 T.Normalize(mean, std),
                 T.ToTensor(),
             ])
