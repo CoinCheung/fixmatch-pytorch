@@ -67,7 +67,7 @@ def train_one_epoch(
     st = time.time()
     dl_x, dl_u = iter(dltrain_x), iter(dltrain_u)
     for it in range(n_iters_per_epoch):
-        ims_x_weak, _, lbs_x = next(dl_x)
+        ims_x_weak, ims_x_strong, lbs_x = next(dl_x)
         ims_u_weak, ims_u_strong, _ = next(dl_u)
 
         ims_x_weak = ims_x_weak.cuda()
