@@ -76,9 +76,9 @@ def train_one_epoch(
         ims_u_strong = ims_u_strong.cuda()
 
         ## TODO: try only one forward
+        lbs_u = lb_guessor(model, ims_u_weak)
         logits_x = model(ims_x_weak)
         loss_x = criteria_x(logits_x, lbs_x)
-        lbs_u = lb_guessor(model, ims_u_weak)
         logits_u = model(ims_u_strong)
         loss_u = criteria_u(logits_u, lbs_u)
         loss = loss_x + lambda_u * loss_u
@@ -86,8 +86,8 @@ def train_one_epoch(
         optim.zero_grad()
         loss.backward()
         optim.step()
-        lr_schdlr.step()
         ema.update_params()
+        lr_schdlr.step()
 
         loss_avg.append(loss.item())
         loss_x_avg.append(loss_x.item())
