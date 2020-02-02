@@ -74,21 +74,24 @@ def train_one_epoch(
         ims_u_weak = ims_u_weak.cuda()
         ims_u_strong = ims_u_strong.cuda()
 
-        lbs_u = lb_guessor(model, ims_u_weak)
-        #  print(lbs_u[lbs_u != discard_idx].size())
-        n_x = ims_x_weak.size(0)
-        ims_x_u = torch.cat([ims_x_weak, ims_u_strong], dim=0)
-        lbs_x_u = torch.cat([lbs_x, lbs_u], dim=0)
-        logits_x_u = model(ims_x_u)
-        logits_x, logits_u = logits_x_u[:n_x], logits_x_u[n_x:]
+        n_x, n_u = ims_x_weak.size(0), ims_u_weak.size(0)
+        imgs = torch.cat([ims_x_weak, ims_u_strong, ims_u_weak], dim=0)
+        logits = model(imgs)
+        logits_x, logits_u, logits_guess = logits[:n_x], logits[n_x:n_x+n_u], logits[n_x+n_u:]
+        logits_guess = logits_guess.detach()
+        lbs_u = lb_guessor(logits_guess)
         loss_x = criteria_x(logits_x, lbs_x)
         loss_u = criteria_u(logits_u, lbs_u)
         loss = loss_x + lambda_u * loss_u
 
+        #
         #  lbs_u = lb_guessor(model, ims_u_weak)
-        #  logits_x = model(ims_x_weak)
+        #  n_x = ims_x_weak.size(0)
+        #  ims_x_u = torch.cat([ims_x_weak, ims_u_strong], dim=0)
+        #  lbs_x_u = torch.cat([lbs_x, lbs_u], dim=0)
+        #  logits_x_u = model(ims_x_u)
+        #  logits_x, logits_u = logits_x_u[:n_x], logits_x_u[n_x:]
         #  loss_x = criteria_x(logits_x, lbs_x)
-        #  logits_u = model(ims_u_strong)
         #  loss_u = criteria_u(logits_u, lbs_u)
         #  loss = loss_x + lambda_u * loss_u
 
@@ -168,7 +171,8 @@ def train():
             wd_params.append(param)
     param_list = [
         {'params': wd_params}, {'params': non_wd_params, 'weight_decay': 0}]
-    optim = torch.optim.SGD(param_list, lr=lr, weight_decay=weight_decay)
+    optim = torch.optim.SGD(param_list, lr=lr, weight_decay=weight_decay,
+        momentum=momentum, nesterov=True)
     lr_schdlr = WarmupCosineLrScheduler(
         optim, max_iter=n_iters_all, warmup_iter=0
     )
