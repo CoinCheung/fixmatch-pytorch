@@ -168,7 +168,8 @@ def train():
             wd_params.append(param)
     param_list = [
         {'params': wd_params}, {'params': non_wd_params, 'weight_decay': 0}]
-    optim = torch.optim.SGD(param_list, lr=lr, weight_decay=weight_decay)
+    optim = torch.optim.SGD(param_list, lr=lr, weight_decay=weight_decay,
+        momentum=momentum, nesterov=True)
     lr_schdlr = WarmupCosineLrScheduler(
         optim, max_iter=n_iters_all, warmup_iter=0
     )
