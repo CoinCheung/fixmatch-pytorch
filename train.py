@@ -62,12 +62,11 @@ def train_one_epoch(
         lb_guessor,
         lambda_u,
     ):
-    one_hot = OneHot(n_classes)
     loss_avg, loss_x_avg, loss_u_avg = [], [], []
     st = time.time()
     dl_x, dl_u = iter(dltrain_x), iter(dltrain_u)
     for it in range(n_iters_per_epoch):
-        ims_x_weak, ims_x_strong, lbs_x = next(dl_x)
+        ims_x_weak, _, lbs_x = next(dl_x)
         ims_u_weak, ims_u_strong, _ = next(dl_u)
 
         ims_x_weak = ims_x_weak.cuda()
@@ -75,13 +74,23 @@ def train_one_epoch(
         ims_u_weak = ims_u_weak.cuda()
         ims_u_strong = ims_u_strong.cuda()
 
-        ## TODO: try only one forward
         lbs_u = lb_guessor(model, ims_u_weak)
-        logits_x = model(ims_x_weak)
+        #  print(lbs_u[lbs_u != discard_idx].size())
+        n_x = ims_x_weak.size(0)
+        ims_x_u = torch.cat([ims_x_weak, ims_u_strong], dim=0)
+        lbs_x_u = torch.cat([lbs_x, lbs_u], dim=0)
+        logits_x_u = model(ims_x_u)
+        logits_x, logits_u = logits_x_u[:n_x], logits_x_u[n_x:]
         loss_x = criteria_x(logits_x, lbs_x)
-        logits_u = model(ims_u_strong)
         loss_u = criteria_u(logits_u, lbs_u)
         loss = loss_x + lambda_u * loss_u
+
+        #  lbs_u = lb_guessor(model, ims_u_weak)
+        #  logits_x = model(ims_x_weak)
+        #  loss_x = criteria_x(logits_x, lbs_x)
+        #  logits_u = model(ims_u_strong)
+        #  loss_u = criteria_u(logits_u, lbs_u)
+        #  loss = loss_x + lambda_u * loss_u
 
         optim.zero_grad()
         loss.backward()
