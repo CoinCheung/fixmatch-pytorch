@@ -4,6 +4,10 @@ import numpy as np
 
 
 ## aug functions
+def identity_func(img):
+    return img
+
+
 def autocontrast_func(img, cutoff=0):
     '''
         same output as PIL.ImageOps.autocontrast
@@ -256,6 +260,7 @@ def rotate_level_to_args(MAX_LEVEL, replace_value):
 
 
 func_dict = {
+    'Identity': identity_func,
     'AutoContrast': autocontrast_func,
     'Equalize': equalize_func,
     'Rotate': rotate_func,
@@ -275,6 +280,7 @@ translate_const = 10
 MAX_LEVEL=10
 replace_value = (128, 128, 128)
 arg_dict = {
+    'Identity': none_level_to_args,
     'AutoContrast': none_level_to_args,
     'Equalize': none_level_to_args,
     'Rotate': rotate_level_to_args(MAX_LEVEL, replace_value),

@@ -65,6 +65,7 @@ def train_one_epoch(
     loss_avg, loss_x_avg, loss_u_avg = [], [], []
     st = time.time()
     dl_x, dl_u = iter(dltrain_x), iter(dltrain_u)
+    n_strong = 0
     for it in range(n_iters_per_epoch):
         ims_x_weak, _, lbs_x = next(dl_x)
         ims_u_weak, ims_u_strong, _ = next(dl_u)
@@ -84,7 +85,6 @@ def train_one_epoch(
         loss_u = criteria_u(logits_u, lbs_u)
         loss = loss_x + lambda_u * loss_u
 
-        #
         #  lbs_u = lb_guessor(model, ims_u_weak)
         #  n_x = ims_x_weak.size(0)
         #  ims_x_u = torch.cat([ims_x_weak, ims_u_strong], dim=0)
@@ -104,6 +104,7 @@ def train_one_epoch(
         loss_avg.append(loss.item())
         loss_x_avg.append(loss_x.item())
         loss_u_avg.append(loss_u.item())
+        n_strong += lbs_u[lbs_u != discard_idx].size(0)
 
         if (it+1) % 512 == 0:
             ed = time.time()
@@ -112,18 +113,21 @@ def train_one_epoch(
             loss_x_avg = sum(loss_x_avg) / len(loss_x_avg)
             loss_u_avg = sum(loss_u_avg) / len(loss_u_avg)
             lr_log = lr_schdlr.get_lr_ratio() * lr
+            n_strong /= 512
             msg = ', '.join([
                 'iter: {}',
                 'loss_avg: {:.4f}',
                 'loss_u: {:.4f}',
                 'loss_x: {:.4f}',
+                'num_ulabeled: {}',
                 'lr: {:.4f}',
                 'time: {:.2f}',
             ]).format(
-                it+1, loss_avg, loss_u, loss_x, lr_log, t
+                it+1, loss_avg, loss_u, loss_x, int(n_strong), lr_log, t
             )
             loss_avg, loss_x_avg, loss_u_avg = [], [], []
             st = ed
+            n_strong = 0
             print(msg)
 
     ema.update_buffer()
