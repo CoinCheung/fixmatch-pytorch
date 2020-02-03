@@ -79,8 +79,12 @@ def train_one_epoch(
         imgs = torch.cat([ims_x_weak, ims_u_strong, ims_u_weak], dim=0)
         logits = model(imgs)
         logits_x, logits_u, logits_guess = logits[:n_x], logits[n_x:n_x+n_u], logits[n_x+n_u:]
-        logits_guess = logits_guess.detach()
-        lbs_u = lb_guessor(logits_guess)
+
+        probs_u = torch.softmax(logits_guess.detach(), dim=1)
+        scores_u, lbs_u = torch.max(probs_u, dim=1)
+        lbs_u[scores_u < thr] = discard_idx
+        lbs_u = lbs_u.detach()
+
         loss_x = criteria_x(logits_x, lbs_x)
         loss_u = criteria_u(logits_u, lbs_u)
         loss = loss_x + lambda_u * loss_u
