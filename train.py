@@ -96,7 +96,7 @@ def train_one_epoch(
         ims_u_strong = ims_u_strong[valid_u]
         n_x, n_u = ims_x_weak.size(0), ims_u_strong.size(0)
         if n_u != 0:
-            ims_x_u = torch.cat([ims_x_strong, ims_u_strong], dim=0).detach()
+            ims_x_u = torch.cat([ims_x_weak, ims_u_strong], dim=0).detach()
             lbs_x_u = torch.cat([lbs_x, lbs_u], dim=0).detach()
             logits_x_u = model(ims_x_u)
             logits_x, logits_u = logits_x_u[:n_x], logits_x_u[n_x:]

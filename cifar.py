@@ -10,6 +10,7 @@ import torchvision
 import transform as T
 
 from autoaugment import RandomAugment
+from sampler import RandomSampler, BatchSampler
 
 
 def load_data_train(L=250, dspth='./dataset'):
@@ -66,11 +67,10 @@ def load_data_val(dspth='./dataset'):
 
 
 class Cifar10(Dataset):
-    def __init__(self, data, labels, num_imgs=None, is_train=True):
+    def __init__(self, data, labels, is_train=True):
         super(Cifar10, self).__init__()
         self.data, self.labels = data, labels
         self.is_train = is_train
-        self.num_imgs = num_imgs
         assert len(self.data) == len(self.labels)
         mean, std = (0.4914, 0.4822, 0.4465), (0.2471, 0.2435, 0.2616)
         if is_train:
@@ -97,7 +97,6 @@ class Cifar10(Dataset):
             ])
 
     def __getitem__(self, idx):
-        idx = idx % len(self.data)
         im, lb = self.data[idx], self.labels[idx]
         if self.is_train:
             return self.trans_weak(im), self.trans_weak(im), lb
@@ -106,10 +105,7 @@ class Cifar10(Dataset):
 
     def __len__(self):
         leng = len(self.data)
-        if not self.num_imgs is None:
-            leng = (self.num_imgs // leng + 1) * leng
         return leng
-
 
 
 
@@ -119,28 +115,26 @@ def get_train_loader(batch_size, mu, n_iters_per_epoch, L, root='dataset'):
     ds_x = Cifar10(
         data=data_x,
         labels=label_x,
-        num_imgs=n_iters_per_epoch * batch_size,
         is_train=True
     )
+    sampler_x = RandomSampler(ds_x, replacement=True, num_samples=n_iters_per_epoch * batch_size)
+    batch_sampler_x = BatchSampler(sampler_x, batch_size, drop_last=True)
     dl_x = torch.utils.data.DataLoader(
         ds_x,
-        shuffle=True,
-        batch_size=batch_size,
-        drop_last=True,
+        batch_sampler=batch_sampler_x,
         num_workers=1,
         pin_memory=True
     )
     ds_u = Cifar10(
         data=data_u,
         labels=label_u,
-        num_imgs=n_iters_per_epoch * batch_size * mu,
         is_train=True
     )
+    sampler_u = RandomSampler(ds_u, replacement=True, num_samples=mu * n_iters_per_epoch * batch_size)
+    batch_sampler_u = BatchSampler(sampler_u, batch_size * mu, drop_last=True)
     dl_u = torch.utils.data.DataLoader(
         ds_u,
-        shuffle=True,
-        batch_size=batch_size * mu,
-        drop_last=True,
+        batch_sampler=batch_sampler_u,
         num_workers=1,
         pin_memory=True
     )
