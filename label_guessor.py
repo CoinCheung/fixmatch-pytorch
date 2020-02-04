@@ -18,12 +18,13 @@ class LabelGuessor(object):
         logits = model(ims)
         probs = torch.softmax(logits, dim=1)
         scores, lbs = torch.max(probs, dim=1)
-        lbs[scores < self.thresh] = self.discard_idx
+        idx = scores > self.thresh
+        lbs = lbs[idx]
 
         model.load_state_dict(org_state)
         if is_train:
             model.train()
         else:
             model.eval()
-        return lbs.detach()
+        return lbs.detach(), idx
 

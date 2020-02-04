@@ -5,6 +5,7 @@ import numpy as np
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 from model import WideResnet
 from cifar import get_train_loader, get_val_loader, OneHot
@@ -47,6 +48,7 @@ def set_model():
     model.cuda()
     criteria_x = nn.CrossEntropyLoss().cuda()
     criteria_u = nn.CrossEntropyLoss(ignore_index=discard_idx).cuda()
+    criteria_u_real = nn.CrossEntropyLoss(ignore_index=discard_idx).cuda()
     return model, criteria_x, criteria_u
 
 
@@ -62,35 +64,56 @@ def train_one_epoch(
         lb_guessor,
         lambda_u,
     ):
-    loss_avg, loss_x_avg, loss_u_avg = [], [], []
+    loss_avg, loss_x_avg, loss_u_avg, loss_u_real_avg = [], [], [], []
+    n_correct_lbs = []
     st = time.time()
     dl_x, dl_u = iter(dltrain_x), iter(dltrain_u)
+    n_strong = 0
     for it in range(n_iters_per_epoch):
-        ims_x_weak, _, lbs_x = next(dl_x)
-        ims_u_weak, ims_u_strong, _ = next(dl_u)
+        ims_x_weak, ims_x_strong, lbs_x = next(dl_x)
+        ims_u_weak, ims_u_strong, lbs_u_real = next(dl_u)
 
+        ims_x_strong = ims_x_strong.cuda()
         ims_x_weak = ims_x_weak.cuda()
         lbs_x = lbs_x.cuda()
         ims_u_weak = ims_u_weak.cuda()
         ims_u_strong = ims_u_strong.cuda()
 
-        lbs_u = lb_guessor(model, ims_u_weak)
-        #  print(lbs_u[lbs_u != discard_idx].size())
-        n_x = ims_x_weak.size(0)
-        ims_x_u = torch.cat([ims_x_weak, ims_u_strong], dim=0)
-        lbs_x_u = torch.cat([lbs_x, lbs_u], dim=0)
-        logits_x_u = model(ims_x_u)
-        logits_x, logits_u = logits_x_u[:n_x], logits_x_u[n_x:]
-        loss_x = criteria_x(logits_x, lbs_x)
-        loss_u = criteria_u(logits_u, lbs_u)
-        loss = loss_x + lambda_u * loss_u
-
-        #  lbs_u = lb_guessor(model, ims_u_weak)
-        #  logits_x = model(ims_x_weak)
+        #  n_x, n_u = ims_x_weak.size(0), ims_u_weak.size(0)
+        #  imgs = torch.cat([ims_x_weak, ims_u_strong, ims_u_weak], dim=0)
+        #  logits = model(imgs)
+        #  logits_x, logits_u, logits_guess = logits[:n_x], logits[n_x:n_x+n_u], logits[n_x+n_u:]
+        #  probs_u = torch.softmax(logits_guess.detach(), dim=1)
+        #  scores_u, lbs_u = torch.max(probs_u, dim=1)
+        #  lbs_u[scores_u < thr] = discard_idx
+        #  lbs_u = lbs_u.detach()
         #  loss_x = criteria_x(logits_x, lbs_x)
-        #  logits_u = model(ims_u_strong)
         #  loss_u = criteria_u(logits_u, lbs_u)
         #  loss = loss_x + lambda_u * loss_u
+        #  n_u = (scores_u < thr).sum()
+
+        lbs_u, valid_u = lb_guessor(model, ims_u_weak)
+        ims_u_strong = ims_u_strong[valid_u]
+        n_x, n_u = ims_x_weak.size(0), ims_u_strong.size(0)
+        if n_u != 0:
+            ims_x_u = torch.cat([ims_x_strong, ims_u_strong], dim=0).detach()
+            lbs_x_u = torch.cat([lbs_x, lbs_u], dim=0).detach()
+            logits_x_u = model(ims_x_u)
+            logits_x, logits_u = logits_x_u[:n_x], logits_x_u[n_x:]
+            loss_x = criteria_x(logits_x, lbs_x)
+            loss_u = criteria_u(logits_u, lbs_u)
+            loss = loss_x + lambda_u * loss_u
+            with torch.no_grad():
+                lbs_u_real = lbs_u_real[valid_u].cuda()
+                corr_lb = lbs_u_real == lbs_u
+                loss_u_real = F.cross_entropy(logits_u, lbs_u_real)
+        else:
+            logits_x = model(ims_x_weak)
+            loss_x = criteria_x(logits_x, lbs_x)
+            loss_u = torch.tensor(0)
+            loss_u_real = torch.tensor(0)
+            corr_lb = torch.tensor(0)
+            loss = loss_x
 
         optim.zero_grad()
         loss.backward()
@@ -101,6 +124,9 @@ def train_one_epoch(
         loss_avg.append(loss.item())
         loss_x_avg.append(loss_x.item())
         loss_u_avg.append(loss_u.item())
+        loss_u_real_avg.append(loss_u_real.item())
+        n_correct_lbs.append(corr_lb.sum().item())
+        n_strong += n_u
 
         if (it+1) % 512 == 0:
             ed = time.time()
@@ -108,19 +134,27 @@ def train_one_epoch(
             loss_avg = sum(loss_avg) / len(loss_avg)
             loss_x_avg = sum(loss_x_avg) / len(loss_x_avg)
             loss_u_avg = sum(loss_u_avg) / len(loss_u_avg)
+            loss_u_real_avg = sum(loss_u_real_avg) / len(loss_u_real_avg)
+            n_correct_lbs = sum(n_correct_lbs) / len(n_correct_lbs)
             lr_log = lr_schdlr.get_lr_ratio() * lr
+            n_strong /= 512
             msg = ', '.join([
                 'iter: {}',
                 'loss_avg: {:.4f}',
                 'loss_u: {:.4f}',
                 'loss_x: {:.4f}',
+                'loss_u_real: {:.4f}',
+                'num_ulabeled: {}/{}',
                 'lr: {:.4f}',
                 'time: {:.2f}',
             ]).format(
-                it+1, loss_avg, loss_u, loss_x, lr_log, t
+                it+1, loss_avg, loss_u, loss_x, loss_u_real_avg,
+                int(n_correct_lbs), int(n_strong), lr_log, t
             )
-            loss_avg, loss_x_avg, loss_u_avg = [], [], []
+            loss_avg, loss_x_avg, loss_u_avg, loss_u_real_avg = [], [], [], []
+            n_correct_lbs = []
             st = ed
+            n_strong = 0
             print(msg)
 
     ema.update_buffer()
