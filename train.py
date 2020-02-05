@@ -78,19 +78,6 @@ def train_one_epoch(
         ims_u_weak = ims_u_weak.cuda()
         ims_u_strong = ims_u_strong.cuda()
 
-        #  n_x, n_u = ims_x_weak.size(0), ims_u_weak.size(0)
-        #  imgs = torch.cat([ims_x_weak, ims_u_strong, ims_u_weak], dim=0)
-        #  logits = model(imgs)
-        #  logits_x, logits_u, logits_guess = logits[:n_x], logits[n_x:n_x+n_u], logits[n_x+n_u:]
-        #  probs_u = torch.softmax(logits_guess.detach(), dim=1)
-        #  scores_u, lbs_u = torch.max(probs_u, dim=1)
-        #  lbs_u[scores_u < thr] = discard_idx
-        #  lbs_u = lbs_u.detach()
-        #  loss_x = criteria_x(logits_x, lbs_x)
-        #  loss_u = criteria_u(logits_u, lbs_u)
-        #  loss = loss_x + lambda_u * loss_u
-        #  n_u = (scores_u < thr).sum()
-
         lbs_u, valid_u = lb_guessor(model, ims_u_weak)
         ims_u_strong = ims_u_strong[valid_u]
         n_x, n_u = ims_x_weak.size(0), ims_u_strong.size(0)
