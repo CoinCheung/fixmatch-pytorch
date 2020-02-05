@@ -99,7 +99,7 @@ class Cifar10(Dataset):
     def __getitem__(self, idx):
         im, lb = self.data[idx], self.labels[idx]
         if self.is_train:
-            return self.trans_weak(im), self.trans_weak(im), lb
+            return self.trans_weak(im), self.trans_strong(im), lb
         else:
             return self.trans(im), lb
 
@@ -135,7 +135,7 @@ def get_train_loader(batch_size, mu, n_iters_per_epoch, L, root='dataset'):
     dl_u = torch.utils.data.DataLoader(
         ds_u,
         batch_sampler=batch_sampler_u,
-        num_workers=1,
+        num_workers=4,
         pin_memory=True
     )
     return dl_x, dl_u

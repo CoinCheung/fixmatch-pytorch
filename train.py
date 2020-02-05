@@ -19,6 +19,7 @@ from ema import EMA
 wresnet_k = 2
 wresnet_n = 28
 n_classes = 10
+n_labeled = 40
 lr = 0.03
 n_epoches = 1024
 batchsize = 64
@@ -29,7 +30,6 @@ lam_u = 1
 ema_alpha = 0.999
 weight_decay = 5e-4
 momentum = 0.9
-discard_idx = 1001
 n_iters_per_epoch = n_imgs_per_epoch // batchsize
 n_iters_all = n_iters_per_epoch * n_epoches
 
@@ -47,8 +47,7 @@ def set_model():
     model.train()
     model.cuda()
     criteria_x = nn.CrossEntropyLoss().cuda()
-    criteria_u = nn.CrossEntropyLoss(ignore_index=discard_idx).cuda()
-    criteria_u_real = nn.CrossEntropyLoss(ignore_index=discard_idx).cuda()
+    criteria_u = nn.CrossEntropyLoss().cuda()
     return model, criteria_x, criteria_u
 
 
@@ -140,11 +139,11 @@ def train_one_epoch(
             n_strong /= 512
             msg = ', '.join([
                 'iter: {}',
-                'loss_avg: {:.4f}',
+                'loss: {:.4f}',
                 'loss_u: {:.4f}',
                 'loss_x: {:.4f}',
-                'loss_u_real: {:.4f}',
-                'num_ulabeled: {}/{}',
+                'loss_u_real_lb: {:.4f}',
+                'n_correct_u: {}/{}',
                 'lr: {:.4f}',
                 'time: {:.2f}',
             ]).format(
@@ -165,9 +164,7 @@ def evaluate(ema):
     ema.model.eval()
     ema.model.cuda()
 
-    dlval = get_val_loader(
-        batch_size=128, num_workers=0, root='cifar10'
-    )
+    dlval = get_val_loader(batch_size=128, num_workers=0, root='cifar10')
     matches = []
     for ims, lbs in dlval:
         ims = ims.cuda()
@@ -189,8 +186,8 @@ def train():
     model, criteria_x, criteria_u = set_model()
 
     dltrain_x, dltrain_u = get_train_loader(
-        batchsize, mu, n_iters_per_epoch, L=250)
-    lb_guessor = LabelGuessor(thresh=thr, discard_idx=discard_idx)
+        batchsize, mu, n_iters_per_epoch, L=n_labeled)
+    lb_guessor = LabelGuessor(thresh=thr)
 
     ema = EMA(model, ema_alpha)
 
