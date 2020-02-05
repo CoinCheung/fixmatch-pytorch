@@ -9,7 +9,7 @@ from torch.utils.data import Dataset
 import torchvision
 import transform as T
 
-from autoaugment import RandomAugment
+from randaugment import RandomAugment
 from sampler import RandomSampler, BatchSampler
 
 
