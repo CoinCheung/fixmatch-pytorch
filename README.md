@@ -26,7 +26,7 @@ download cifar-10 dataset:
 ## Train the model
 
 To train the model with 40 labeled samples, you can run the script: 
-```python
+```
     $ python train.py --n-labeled 40 
 ```
 where `40` is the number of labeled sample during training.
@@ -34,7 +34,7 @@ where `40` is the number of labeled sample during training.
 
 ## Results
 After training the model with 40 labeled samples for 5 times with the command:
-```python
+```
     $ python train.py --n-labeled 40 --seed -1
 ```
 I observed top-1 accuracy like this:  
