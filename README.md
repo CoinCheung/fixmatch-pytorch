@@ -24,11 +24,25 @@ download cifar-10 dataset:
 ```
 
 ## Train the model
-The configurations are in `train.py`. By default, it trains with 40 labeled images. If you would like to try training with other number of labeled images, you can modify the variable of `n_labeled` in `train.py`.   
 
-To train the model, you can run the script: 
+To train the model with 40 labeled samples, you can run the script: 
+```python
+    $ python train.py --n-labeled 40 
 ```
-    $ sh run.sh
-```
+where `40` is the number of labeled sample during training.
 
-Note that currently I only implemented the experiments on cifar10 with `RA` as strong augmentation settings.
+
+## Results
+After training the model with 40 labeled samples for 5 times with the command:
+```python
+    $ python train.py --n-labeled 40 --seed -1
+```
+I observed top-1 accuracy like this:  
+
+| #No. | 1 | 2 | 3 | 4 | 5 |
+|:---|:---:|:---:|:---:|:---:|:---:|
+|acc | 91.81 | 91.29 | 89.51 | 91.32 | 79.42 |
+
+
+Note: 
+I only implemented experiements on cifar-10 dataset without CTAugment.

@@ -1,5 +1,6 @@
 import random
 import time
+import argparse
 
 import numpy as np
 
@@ -10,40 +11,57 @@ import torch.nn.functional as F
 from model import WideResnet
 from cifar import get_train_loader, get_val_loader, OneHot
 from label_guessor import LabelGuessor
-#  from loss import CrossEntropyLoss
 from lr_scheduler import WarmupCosineLrScheduler
 from ema import EMA
 
 
-## some hyper-parameters are borrowed from the official repository
-wresnet_k = 2
-wresnet_n = 28
-n_classes = 10
-n_labeled = 40
-lr = 0.03
-n_epoches = 1024
-batchsize = 64
-mu = 7
-thr = 0.95
-n_imgs_per_epoch = 64 * 1024
-lam_u = 1
-ema_alpha = 0.999
-weight_decay = 5e-4
-momentum = 0.9
-n_iters_per_epoch = n_imgs_per_epoch // batchsize
-n_iters_all = n_iters_per_epoch * n_epoches
+## args
+parser = argparse.ArgumentParser(description=' FixMatch Training')
+parser.add_argument('--wresnet-k', default=2, type=int,
+                    help='width factor of wide resnet')
+parser.add_argument('--wresnet-n', default=28, type=int,
+                    help='depth of wide resnet')
+parser.add_argument('--n-classes', type=int, default=10,
+                    help='number of classes in dataset')
+parser.add_argument('--n-labeled', type=int, default=40,
+                    help='number of labeled samples for training')
+parser.add_argument('--n-epoches', type=int, default=1024,
+                    help='number of training epoches')
+parser.add_argument('--batchsize', type=int, default=64,
+                    help='train batch size of labeled samples')
+parser.add_argument('--mu', type=int, default=7,
+                    help='factor of train batch size of unlabeled samples')
+parser.add_argument('--thr', type=float, default=0.95,
+                    help='pseudo label threshold')
+parser.add_argument('--n-imgs-per-epoch', type=int, default=64 * 1024,
+                    help='number of training images for each epoch')
+parser.add_argument('--lam-u', type=float, default=1.,
+                    help='coefficient of unlabeled loss')
+parser.add_argument('--ema-alpha', type=float, default=0.999,
+                    help='decay rate for ema module')
+parser.add_argument('--lr', type=float, default=0.03,
+                    help='learning rate for training')
+parser.add_argument('--weight-decay', type=float, default=5e-4,
+                    help='weight decay')
+parser.add_argument('--momentum', type=float, default=0.9,
+                    help='momentum for optimizer')
+parser.add_argument('--seed', type=int, default=123,
+                    help='seed for random behaviors, no seed if negtive')
+args = parser.parse_args()
 
 
 ## settings
-torch.multiprocessing.set_sharing_strategy('file_system')
-torch.manual_seed(123)
-random.seed(123)
-np.random.seed(123)
-torch.backends.cudnn.deterministic = True
+#  torch.multiprocessing.set_sharing_strategy('file_system')
+if args.seed > 0:
+    torch.manual_seed(args.seed)
+    random.seed(args.seed)
+    np.random.seed(args.seed)
+    torch.backends.cudnn.deterministic = True
 
 
 def set_model():
-    model = WideResnet(n_classes, k=wresnet_k, n=wresnet_n) # wide resnet-28
+    model = WideResnet(
+        args.n_classes, k=args.wresnet_k, n=args.wresnet_n) # wresnet-28-2
     model.train()
     model.cuda()
     criteria_x = nn.CrossEntropyLoss().cuda()
@@ -62,13 +80,14 @@ def train_one_epoch(
         dltrain_u,
         lb_guessor,
         lambda_u,
+        n_iters,
     ):
     loss_avg, loss_x_avg, loss_u_avg, loss_u_real_avg = [], [], [], []
     n_correct_lbs = []
     st = time.time()
     dl_x, dl_u = iter(dltrain_x), iter(dltrain_u)
     n_strong = 0
-    for it in range(n_iters_per_epoch):
+    for it in range(n_iters):
         ims_x_weak, ims_x_strong, lbs_x = next(dl_x)
         ims_u_weak, ims_u_strong, lbs_u_real = next(dl_u)
 
@@ -122,7 +141,8 @@ def train_one_epoch(
             loss_u_avg = sum(loss_u_avg) / len(loss_u_avg)
             loss_u_real_avg = sum(loss_u_real_avg) / len(loss_u_real_avg)
             n_correct_lbs = sum(n_correct_lbs) / len(n_correct_lbs)
-            lr_log = lr_schdlr.get_lr_ratio() * lr
+            lr_log = [pg['lr'] for pg in optim.param_groups]
+            lr_log = sum(lr_log) / len(lr_log)
             n_strong /= 512
             msg = ', '.join([
                 'iter: {}',
@@ -170,13 +190,16 @@ def evaluate(ema):
 
 
 def train():
+    n_iters_per_epoch = args.n_imgs_per_epoch // args.batchsize
+    n_iters_all = n_iters_per_epoch * args.n_epoches
+
     model, criteria_x, criteria_u = set_model()
 
     dltrain_x, dltrain_u = get_train_loader(
-        batchsize, mu, n_iters_per_epoch, L=n_labeled)
-    lb_guessor = LabelGuessor(thresh=thr)
+        args.batchsize, args.mu, n_iters_per_epoch, L=args.n_labeled)
+    lb_guessor = LabelGuessor(thresh=args.thr)
 
-    ema = EMA(model, ema_alpha)
+    ema = EMA(model, args.ema_alpha)
 
     wd_params, non_wd_params = [], []
     for param in model.parameters():
@@ -186,8 +209,8 @@ def train():
             wd_params.append(param)
     param_list = [
         {'params': wd_params}, {'params': non_wd_params, 'weight_decay': 0}]
-    optim = torch.optim.SGD(param_list, lr=lr, weight_decay=weight_decay,
-        momentum=momentum, nesterov=True)
+    optim = torch.optim.SGD(param_list, lr=args.lr, weight_decay=args.weight_decay,
+        momentum=args.momentum, nesterov=True)
     lr_schdlr = WarmupCosineLrScheduler(
         optim, max_iter=n_iters_all, warmup_iter=0
     )
@@ -202,11 +225,12 @@ def train():
         dltrain_x=dltrain_x,
         dltrain_u=dltrain_u,
         lb_guessor=lb_guessor,
-        lambda_u=lam_u,
+        lambda_u=args.lam_u,
+        n_iters=n_iters_per_epoch,
     )
     best_acc = -1
     print('start to train')
-    for e in range(n_epoches):
+    for e in range(args.n_epoches):
         model.train()
         print('epoch: {}'.format(e+1))
         train_one_epoch(**train_args)
