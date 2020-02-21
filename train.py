@@ -45,12 +45,12 @@ parser.add_argument('--weight-decay', type=float, default=5e-4,
                     help='weight decay')
 parser.add_argument('--momentum', type=float, default=0.9,
                     help='momentum for optimizer')
-parser.add_argument('--seed', type=int, default=123,
+parser.add_argument('--seed', type=int, default=-1,
                     help='seed for random behaviors, no seed if negtive')
 args = parser.parse_args()
 
 
-## settings
+## global settings
 #  torch.multiprocessing.set_sharing_strategy('file_system')
 if args.seed > 0:
     torch.manual_seed(args.seed)

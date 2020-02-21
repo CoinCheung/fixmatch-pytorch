@@ -73,6 +73,7 @@ class Cifar10(Dataset):
         self.is_train = is_train
         assert len(self.data) == len(self.labels)
         mean, std = (0.4914, 0.4822, 0.4465), (0.2471, 0.2435, 0.2616)
+        #  mean, std = (0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)
         if is_train:
             self.trans_weak = T.Compose([
                 T.Resize((32, 32)),
@@ -135,7 +136,7 @@ def get_train_loader(batch_size, mu, n_iters_per_epoch, L, root='dataset'):
     dl_u = torch.utils.data.DataLoader(
         ds_u,
         batch_sampler=batch_sampler_u,
-        num_workers=4,
+        num_workers=2,
         pin_memory=True
     )
     return dl_x, dl_u

@@ -35,7 +35,7 @@ where `40` is the number of labeled sample during training.
 ## Results
 After training the model with 40 labeled samples for 5 times with the command:
 ```
-    $ python train.py --n-labeled 40 --seed -1
+    $ python train.py --n-labeled 40 
 ```
 I observed top-1 accuracy like this:  
 
