@@ -156,11 +156,12 @@ class WideResnetBackbone(nn.Module):
     def init_weight(self):
         for _, child in self.named_children():
             if isinstance(child, nn.Conv2d):
-                #  n = child.kernel_size[0] * child.kernel_size[0] * child.out_channels
-                #  nn.init.normal_(child.weight, 0, (2./n)**0.5)
-                nn.init.kaiming_normal_(
-                    child.weight, a=0, mode='fan_in', nonlinearity='leaky_relu'
-                )
+                n = child.kernel_size[0] * child.kernel_size[0] * child.out_channels
+                nn.init.normal_(child.weight, 0, 1. / ((0.5 * n) ** 0.5))
+                #  nn.init.kaiming_normal_(
+                #      child.weight, a=0.1, mode='fan_out',
+                #      nonlinearity='leaky_relu'
+                #  )
                 if not child.bias is None: nn.init.constant_(child.bias, 0)
 
 
