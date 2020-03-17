@@ -55,6 +55,7 @@ class Normalize(object):
         elif len(im.shape) == 3:
             mean, std = self.mean, self.std
         im = im.astype(np.float32) / 255.
+        #  im = (im.astype(np.float32) / 127.5) - 1
         im -= mean
         im /= std
         return im

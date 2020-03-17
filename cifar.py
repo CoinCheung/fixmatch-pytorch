@@ -46,6 +46,7 @@ def load_data_train(L=250, dspth='./dataset'):
     return data_x, label_x, data_u, label_u
 
 
+
 def load_data_val(dspth='./dataset'):
     datalist = [
         osp.join(dspth, 'cifar-10-batches-py', 'test_batch')
@@ -66,6 +67,22 @@ def load_data_val(dspth='./dataset'):
     return data, labels
 
 
+def compute_mean_var():
+    data_x, label_x, data_u, label_u = load_data_train()
+    data = data_x + data_u
+    data = np.concatenate([el[None, ...] for el in data], axis=0)
+
+    mean, var = [], []
+    for i in range(3):
+        channel = (data[:, :, :, i].ravel() / 127.5) - 1
+        #  channel = (data[:, :, :, i].ravel() / 255)
+        mean.append(np.mean(channel))
+        var.append(np.std(channel))
+
+    print('mean: ', mean)
+    print('var: ', var)
+
+
 class Cifar10(Dataset):
     def __init__(self, data, labels, is_train=True):
         super(Cifar10, self).__init__()
@@ -73,7 +90,7 @@ class Cifar10(Dataset):
         self.is_train = is_train
         assert len(self.data) == len(self.labels)
         mean, std = (0.4914, 0.4822, 0.4465), (0.2471, 0.2435, 0.2616)
-        #  mean, std = (0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)
+        #  mean, std = (-0.0172, -0.0356, -0.1069), (0.4940, 0.4869, 0.5231) # [-1, 1]
         if is_train:
             self.trans_weak = T.Compose([
                 T.Resize((32, 32)),
@@ -188,23 +205,24 @@ class OneHot(object):
 
 
 if __name__ == "__main__":
-    dl_x, dl_u = get_train_loader(64, 250, 2, 2)
-    dl_x2 = iter(dl_x)
-    dl_u2 = iter(dl_u)
-    ims, lb = next(dl_u2)
-    print(type(ims))
-    print(len(ims))
-    print(ims[0].size())
-    print(len(dl_u2))
-    for i in range(1024):
-        try:
-            ims_x, lbs_x = next(dl_x2)
-            #  ims_u, lbs_u = next(dl_u2)
-            print(i, ": ", ims_x[0].size())
-        except StopIteration:
-            dl_x2 = iter(dl_x)
-            dl_u2 = iter(dl_u)
-            ims_x, lbs_x = next(dl_x2)
-            #  ims_u, lbs_u = next(dl_u2)
-            print('recreate iterator')
-            print(i, ": ", ims_x[0].size())
+    compute_mean_var()
+    #  dl_x, dl_u = get_train_loader(64, 250, 2, 2)
+    #  dl_x2 = iter(dl_x)
+    #  dl_u2 = iter(dl_u)
+    #  ims, lb = next(dl_u2)
+    #  print(type(ims))
+    #  print(len(ims))
+    #  print(ims[0].size())
+    #  print(len(dl_u2))
+    #  for i in range(1024):
+    #      try:
+    #          ims_x, lbs_x = next(dl_x2)
+    #          #  ims_u, lbs_u = next(dl_u2)
+    #          print(i, ": ", ims_x[0].size())
+    #      except StopIteration:
+    #          dl_x2 = iter(dl_x)
+    #          dl_u2 = iter(dl_u)
+    #          ims_x, lbs_x = next(dl_x2)
+    #          #  ims_u, lbs_u = next(dl_u2)
+    #          print('recreate iterator')
+    #          print(i, ": ", ims_x[0].size())
