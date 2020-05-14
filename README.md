@@ -2,6 +2,7 @@
 # FixMatch
 
 This is my implementation of the experiment in the paper of [fixmatch](https://arxiv.org/abs/2001.07685). 
+I only implemented experiements on cifar-10 dataset without CTAugment.
 
 
 ## Environment setup
@@ -45,4 +46,7 @@ I observed top-1 accuracy like this:
 
 
 Note: 
-I only implemented experiements on cifar-10 dataset without CTAugment.
+1. There is no need to add interleave, since interleave is used to avoid the bias of bn status. MixMatch uses interleave because because they run forward computation with three data batches for three times, if you combine the three batches together and run only one pass of forward computation with the combined batch, the results should be same. You may refer to my implementation of mixmatch [here](https://github.com/CoinCheung/mixMatch.git), which does not use interleave and still achieves similar results. 
+
+2. The method based on naive random augmentation will cause a relatively large variance. If you set random seed free, and generate the split of labeled training set randomly each time, you may observe that the validation accuracy would fluctuate within a big range. In the paper, the authors used CTAugment which introduced some feedback to the data augmentation strategy, which will reduce the variance.
+
